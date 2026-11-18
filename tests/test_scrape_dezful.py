@@ -106,6 +106,26 @@ class ScraperTests(unittest.TestCase):
             finally:
                 neighborhoods.GEOJSON_FILE=old
 
+    def test_osm_enrichment_sets_neighborhood_and_preserves_source(self):
+        conn = scraper.sqlite3.connect(":memory:")
+        conn.execute("""
+            CREATE TABLE osm_geocode_cache (
+                lat REAL NOT NULL, lon REAL NOT NULL, payload TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(lat, lon)
+            )
+        """)
+        row = {"محله": "نام دیوار", "عرض_جغرافیایی": 32.38,
+               "طول_جغرافیایی": 48.40, "موقعیت_تقریبی": "خیر"}
+        with patch.object(scraper.osm_neighborhoods, "reverse_lookup",
+                          return_value={"neighborhood": "مصلا", "road": "بهاران ۵",
+                                        "district": "مرکز شهر"}):
+            result = scraper.apply_osm_neighborhood(row, conn)
+        self.assertEqual(result["محله"], "مصلا")
+        self.assertEqual(result["خیابان_خودکار"], "بهاران ۵")
+        self.assertEqual(result["منبع_محله"], "OpenStreetMap (Nominatim)")
+        conn.close()
+
     def test_map_coordinates_are_saved_in_listing(self):
         row = {"token": "map-test", "title": "آپارتمان",
                "latitude": 32.38, "longitude": 48.40,

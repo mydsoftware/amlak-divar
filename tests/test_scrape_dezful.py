@@ -155,18 +155,13 @@ class ScraperTests(unittest.TestCase):
             self.assertTrue(scraper.open_url_for_platform("https://example.com"))
         startfile.assert_called_once_with("https://example.com")
 
-    def test_url_launcher_uses_termux_command(self):
-        with patch.object(scraper.sys, "platform", "linux"), \
-             patch.dict(scraper.os.environ, {
-                 "TERMUX_VERSION": "0.118",
-                 "PREFIX": "/data/data/com.termux/files/usr",
-             }, clear=True), \
-             patch.object(scraper.shutil, "which", return_value="/usr/bin/termux-open-url"), \
-             patch.object(scraper.subprocess, "run") as run:
-            self.assertTrue(scraper.open_url_for_platform("https://example.com"))
-        run.assert_called_once()
-        self.assertEqual(run.call_args.args[0], ["/usr/bin/termux-open-url", "https://example.com"])
+    def test_url_launcher_forces_chrome_in_termux(self):
+        def which(command):
+            return "/system/bin/am" if command == "am" else None
 
+        with patch.object(scraper.sys, "platform", "linux"), patch.dict(scraper.os.environ, {"TERMUX_VERSION": "0.118", "PREFIX": "/data/data/com.termux/files/usr"}, clear=True), patch.object(scraper.shutil, "which", side_effect=which), patch.object(scraper.subprocess, "run") as run:
+            self.assertTrue(scraper.open_url_for_platform("https://example.com"))
+        self.assertEqual(run.call_args.args[0], ["/system/bin/am", "start", "-a", "android.intent.action.VIEW", "-d", "https://example.com", "-p", "com.android.chrome"])
     def test_map_picker_opens_divar_and_parses_pasted_link(self):
         url = "https://divar.ir/s/dezful/buy-apartment?map_bbox=51.30%2C32.35%2C51.45%2C32.55"
         with patch.object(scraper.webbrowser, "open_new_tab", return_value=True) as opener:

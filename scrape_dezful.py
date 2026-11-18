@@ -3,8 +3,12 @@
 """Amlak Divar scraper for Dezful. Console: Finglish. Exported data: Persian."""
 
 import json
+import os
 import re
+import shutil
 import sqlite3
+import subprocess
+import sys
 import time
 import webbrowser
 from datetime import date, datetime, timedelta, timezone
@@ -724,19 +728,42 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
     say("============================")
 
 
+def open_url_for_platform(url: str) -> bool:
+    """Open a URL using the native launcher for Windows or Termux."""
+    if sys.platform.startswith("win"):
+        try:
+            os.startfile(url)
+            return True
+        except (OSError, AttributeError):
+            pass
+
+    is_termux = bool(os.environ.get("TERMUX_VERSION")) or "com.termux" in os.environ.get("PREFIX", "")
+    if is_termux:
+        command = shutil.which("termux-open-url")
+        if command:
+            try:
+                subprocess.run([command, url], check=True, timeout=10,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+    try:
+        return bool(webbrowser.open_new_tab(url))
+    except Exception:
+        return False
+
+
 def open_divar_map_picker() -> bool:
     """Open Divar Dezful residential property listings for map selection."""
     say("\nDar hale baz kardan map-e amlak-e Divar hastim...")
     say("Dar safheye baz shode, namayeshe map ra entekhab konid va mahdude mored nazar ra set konid.")
     say("Pas az entekhab mahdude, link ra copy karde va dar inja paste konid.")
-    try:
-        opened = webbrowser.open_new_tab(DIVAR_MAP_PICKER_URL)
-    except Exception:
-        opened = False
+    opened = open_url_for_platform(DIVAR_MAP_PICKER_URL)
     if not opened:
         say("Mororgar khodkar baz nashod. Link ra dasty baz konid:")
         say(DIVAR_MAP_PICKER_URL)
-    return bool(opened)
+    return opened
 
 
 def ask_map_bbox() -> Dict[str, float]:

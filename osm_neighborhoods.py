@@ -24,8 +24,7 @@ def normalize_address(payload: Dict[str, Any]) -> Dict[str, str]:
     address = payload.get("address") or {}
     neighborhood = (
         address.get("neighbourhood") or address.get("suburb")
-        or address.get("quarter") or address.get("city_district")
-        or address.get("residential") or ""
+        or address.get("quarter") or address.get("residential") or ""
     )
     road = address.get("road") or address.get("pedestrian") or address.get("footway") or ""
     district = address.get("city_district") or address.get("suburb") or ""

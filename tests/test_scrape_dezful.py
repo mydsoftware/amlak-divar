@@ -107,6 +107,15 @@ class ScraperTests(unittest.TestCase):
         result = scraper.make_listing(row, detail, "آپارتمان")
         self.assertEqual(result["موقعیت_تقریبی"], "")
 
+    def test_map_picker_opens_divar_and_parses_pasted_link(self):
+        url = "https://divar.ir/s/dezful/buy-apartment?map_bbox=51.30%2C32.35%2C51.45%2C32.55"
+        with patch.object(scraper.webbrowser, "open_new_tab", return_value=True) as opener, \\
+             patch("builtins.input", return_value=url):
+            bbox = scraper.ask_map_bbox()
+        opener.assert_called_once_with(scraper.DIVAR_MAP_PICKER_URL)
+        self.assertEqual(bbox["minLongitude"], 51.30)
+        self.assertEqual(bbox["maxLatitude"], 32.55)
+
     def test_blank_dates_disable_date_filter(self):
         with patch("builtins.input", side_effect=["", ""]):
             self.assertEqual(scraper.ask_dates(), (None, None))

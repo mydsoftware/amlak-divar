@@ -581,6 +581,12 @@ def category_state(state: Dict[str, Any], slug: str) -> Dict[str, Any]:
 def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets: Dict[str, int],
                        start_date: Optional[date], end_date: Optional[date], city_id: str,
                        districts: Optional[List[str]], bbox: Optional[Dict[str, float]] = None) -> None:
+    # Refresh legacy OSM cache before processing, so existing database rows
+    # are reclassified during Excel export even when all scraped posts are duplicates.
+    try:
+        osm_city_index.ensure_index()
+    except Exception as exc:
+        say(f"OSM city index refresh failed: {type(exc).__name__}; Divar district fallback will be used.")
     added_by_category = {slug: 0 for slug in CATEGORIES}
     added = 0
     skipped_unknown_date = 0

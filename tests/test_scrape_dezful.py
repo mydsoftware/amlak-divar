@@ -57,6 +57,26 @@ class ScraperTests(unittest.TestCase):
         body = scraper.search_body("apartment-sell", "23", ["بهاران"], None, 1)
         self.assertNotIn("query", body["search_data"])
 
+
+    def test_seller_type_supports_real_estate_and_personal(self):
+        self.assertEqual(scraper.normalize_seller_type("business"), "املاک")
+        self.assertEqual(scraper.normalize_seller_type("agency"), "املاک")
+        self.assertEqual(scraper.normalize_seller_type("personal"), "شخصی")
+        self.assertEqual(scraper.normalize_seller_type("individual"), "شخصی")
+        self.assertEqual(scraper.normalize_seller_type("unknown"), "نامشخص")
+
+    def test_build_year_is_extracted(self):
+        row = {"token": "year-test", "title": "آپارتمان"}
+        detail = {
+            "attributes": {"متراژ": "۱۲۰ متر", "سال ساخت": "۱۴۰۲", "اتاق": "۲"},
+            "price": 2_000_000_000, "business_type": "personal",
+            "posted_at": None, "title": "آپارتمان ۱۲۰ متری",
+            "description": "", "district": "بهاران",
+        }
+        result = scraper.make_listing(row, detail, "آپارتمان")
+        self.assertEqual(result["سال_ساخت"], 1402)
+        self.assertEqual(result["نوع_آگهی_دهنده"], "شخصی")
+
     def test_detail_section_parser(self):
         payload = {"webengage": {"price": 3_000_000_000}, "sections": [
             {"section_name": "TITLE", "widgets": [

@@ -568,7 +568,11 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], target: 
             published = detail.get("posted_at")
             if published is None:
                 skipped_unknown_date += 1
-                progress["pending"].pop(0)
+                # Keep the token in the queue. Skipping it could silently lose a valid
+                # listing; continuing without dates could also crawl the entire archive.
+                save_state(state)
+                say("Tarikhe daghigh dar javabe Divar peyda nashod; agahi dar queue mimanad. Parser bayad barresi shavad.")
+                return
             elif published.date() > end_date:
                 progress["pending"].pop(0)
             elif published.date() < start_date:

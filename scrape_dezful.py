@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import time
+import webbrowser
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,6 +20,7 @@ API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
 DETAIL_URL = f"{API_BASE}/posts-v2/web"
 DEZFUL_CITY_ID = "23"
+DIVAR_MAP_PICKER_URL = "https://divar.ir/s/dezful/buy-apartment"
 PAGE_SIZE = 24
 REQUEST_INTERVAL = 0.9
 DATA_DIR = Path("data")
@@ -667,6 +669,32 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
     say("============================")
 
 
+def open_divar_map_picker() -> bool:
+    """Open Divar Dezful residential property listings for map selection."""
+    say("\\nDar hale baz kardan map-e amlak-e Divar hastim...")
+    say("Dar safheye baz shode, namayeshe map ra entekhab konid va mahdude mored nazar ra set konid.")
+    say("Pas az entekhab mahdude, link ra copy karde va dar inja paste konid.")
+    try:
+        opened = webbrowser.open_new_tab(DIVAR_MAP_PICKER_URL)
+    except Exception:
+        opened = False
+    if not opened:
+        say("Mororgar khodkar baz nashod. Link ra dasty baz konid:")
+        say(DIVAR_MAP_PICKER_URL)
+    return bool(opened)
+
+
+def ask_map_bbox() -> Dict[str, float]:
+    open_divar_map_picker()
+    while True:
+        raw = input("Link map Divar ya minLon,minLat,maxLon,maxLat ra paste konid: ").strip()
+        try:
+            return divar_map.parse_bbox(raw)
+        except ValueError as exc:
+            say(str(exc))
+            say("Agar link map parametre map_bbox nadarad, 4 mokhtasat ro ba tartibe minLon,minLat,maxLon,maxLat vared konid.")
+
+
 def ask_int(prompt: str) -> int:
     while True:
         try:
@@ -764,11 +792,7 @@ def main() -> None:
                 map_mode = input("Estekhraj az map-e Divar? (y/n): ").strip().casefold() in {"y", "yes", "bale", "1"}
                 bbox = None
                 if map_mode:
-                    while bbox is None:
-                        try:
-                            bbox = divar_map.parse_bbox(input("Link map Divar ya minLon,minLat,maxLon,maxLat: "))
-                        except ValueError as exc:
-                            say(str(exc))
+                    bbox = ask_map_bbox()
                 state["categories"] = {}
                 state["settings"] = {
                     "start_date": start_date.isoformat() if start_date else None,

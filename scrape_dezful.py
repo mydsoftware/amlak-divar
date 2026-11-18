@@ -743,7 +743,7 @@ def ask_category_targets() -> Dict[str, int]:
 
 
 def ask_keep_previous_data() -> bool:
-    say("\\nEtelaate estekhraj haye ghabli ham dar nazar gerefte shavad?")
+    say("\nEtelaate estekhraj haye ghabli ham dar nazar gerefte shavad?")
     say("1. Bale - data haye ghabli hefz shavad va agahi haye tekrari dobare sabt nashavand")
     say("2. Na - shoroo az sefr (az database backup gerefte mishavad)")
     while True:

@@ -52,7 +52,7 @@ class DivarMapTests(unittest.TestCase):
             Mock(status_code=200, json=lambda: {"count": 201, "posts": []},
                  raise_for_status=lambda: None),
             *[
-                Mock(status_code=200, json=lambda: {"count": 1, "posts": [{
+                Mock(status_code=200, json=lambda i=i: {"count": 1, "posts": [{
                     "map_post_card": {"token": f"t{i}", "title": "x"},
                     "map_pin_feature": {"lat": 32, "lon": 48}
                 }]}, raise_for_status=lambda: None)

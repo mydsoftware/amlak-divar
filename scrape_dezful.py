@@ -277,7 +277,7 @@ def run_extraction(state: Dict[str, Any], target: int, start_date: date,
                     say(f"Khata dar daryaft list: {exc}")
                     save_state(state)
                     return
-                if not tokens:
+                if not tokens or (cat_state.get("cursor") and next_cursor == cat_state.get("cursor")):
                     cat_state["has_next"] = False
                     save_state(state)
                     break
@@ -314,6 +314,7 @@ def run_extraction(state: Dict[str, Any], target: int, start_date: date,
                 # Search is newest-first; older-than-start means this category is complete.
                 cat_state["pending"].clear()
                 cat_state["has_next"] = False
+                cat_state["next_has_next"] = False
             else:
                 if districts:
                     searchable = f"{parsed.get('محله', '')} {parsed.get('عنوان', '')}"

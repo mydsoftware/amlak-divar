@@ -262,7 +262,7 @@ def classify_point(latitude: Any, longitude: Any, index: Optional[Dict[str, Any]
     if approximate:
         source += ' / approximate coordinate'
     if neighborhood and not street and not approximate:
-        confidence = max(confidence, 0.68)
+        confidence = max(confidence, 0.92)
     return {'neighborhood': neighborhood, 'street': street, 'subarea': subarea,
             'nearby_streets': nearby_streets, 'distance_m': distance_m,
             'confidence': round(confidence, 2), 'source': source}

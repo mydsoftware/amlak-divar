@@ -204,7 +204,7 @@ def migrate_legacy_excel(conn: sqlite3.Connection) -> None:
 
 def export_excel(conn: sqlite3.Connection) -> None:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    records = conn.execute("SELECT id,payload FROM listings ORDER BY id").fetchall()
+    records = conn.execute("SELECT id,payload FROM listings ORDER BY id DESC").fetchall()
     rows = []
     for record in records:
         try:
@@ -236,6 +236,20 @@ def export_excel(conn: sqlite3.Connection) -> None:
         with pd.ExcelWriter(temp, engine="openpyxl") as writer:
             frame.to_excel(writer, sheet_name="همه آگهی‌ها", index=False)
             summary.to_excel(writer, sheet_name="خلاصه قیمت مناطق", index=False)
+        from openpyxl import load_workbook
+        workbook = load_workbook(temp)
+        sheet = workbook["همه آگهی‌ها"]
+        link_column = COLUMNS.index("لینک") + 1
+        sheet.freeze_panes = "A2"
+        sheet.auto_filter.ref = sheet.dimensions
+        for row_index in range(2, sheet.max_row + 1):
+            cell = sheet.cell(row=row_index, column=link_column)
+            url = clean_text(cell.value)
+            if url.startswith("https://divar.ir/"):
+                cell.value = "مشاهده آگهی"
+                cell.hyperlink = url
+                cell.style = "Hyperlink"
+        workbook.save(temp)
         temp.replace(EXCEL_FILE)
     except PermissionError:
         say("HOSHdar: file Excel baz ast. Excel ra bebandid va dobare export konid.")
@@ -443,9 +457,11 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
             rooms = value
     price = detail["price"] or parse_money(search_row.get("price_text"))
     price_per_meter = int(price / area) if price and area and area > 0 else None
-    business_type = detail.get("business_type", "")
-    if business_type:
-        seller = "مشاور املاک" if any(x in business_type.lower() for x in ("business", "agency")) else "شخصی"
+    business_type = clean_text(detail.get("business_type", "")).casefold()
+    if any(x in business_type for x in ("business", "agency", "real_estate", "real-estate", "مشاور", "املاک")):
+        seller = "املاک"
+    elif any(x in business_type for x in ("personal", "person", "private", "individual", "شخصی")):
+        seller = "شخصی"
     else:
         seller = "نامشخص"
     published = detail.get("posted_at")
@@ -495,19 +511,21 @@ def category_state(state: Dict[str, Any], slug: str) -> Dict[str, Any]:
     return value
 
 
-def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], target: int,
-                       start_date: date, end_date: date, city_id: str,
+def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets: Dict[str, int],
+                       start_date: Optional[date], end_date: Optional[date], city_id: str,
                        districts: Optional[List[str]]) -> None:
+    added_by_category = {slug: 0 for slug in CATEGORIES}
     added = 0
     skipped_unknown_date = 0
     skipped_unavailable = 0
     export_counter = 0
     for slug, label in CATEGORIES.items():
-        if added >= target:
-            break
+        category_target = targets.get(slug, 0)
+        if category_target <= 0:
+            continue
         progress = category_state(state, slug)
-        say(f"\nDaste: {label}")
-        while added < target:
+        say(f"\nDaste: {label} | Hadaf: {category_target}")
+        while added_by_category[slug] < category_target:
             if not progress["pending"]:
                 if not progress["has_next"]:
                     break
@@ -566,16 +584,14 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], target: 
             detail = extract_detail_fields(detail_payload)
             row = make_listing(item, detail, label)
             published = detail.get("posted_at")
-            if published is None:
+            if start_date is not None and end_date is not None and published is None:
                 skipped_unknown_date += 1
-                # Keep the token in the queue. Skipping it could silently lose a valid
-                # listing; continuing without dates could also crawl the entire archive.
                 save_state(state)
-                say("Tarikhe daghigh dar javabe Divar peyda nashod; agahi dar queue mimanad. Parser bayad barresi shavad.")
+                say("Tarikhe daghigh baraye filter peyda nashod; agahi dar queue mimanad.")
                 return
-            elif published.date() > end_date:
+            elif start_date is not None and end_date is not None and published.date() > end_date:
                 progress["pending"].pop(0)
-            elif published.date() < start_date:
+            elif start_date is not None and end_date is not None and published.date() < start_date:
                 # Newest-first order: this category has crossed the requested start date.
                 progress["pending"].clear()
                 progress["has_next"] = False
@@ -587,6 +603,7 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], target: 
                 progress["pending"].pop(0)
                 if inserted:
                     added += 1
+                    added_by_category[slug] += 1
                     export_counter += 1
                     say(f"Agahi sabt shod: {row_id} | {row['عنوان'][:60]}")
                 if export_counter >= 10:
@@ -614,6 +631,8 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], target: 
     total = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
     say("\n========== NATIJE ==========")
     say(f"Agahi jadid ezafe shode: {added}")
+    for slug, label in CATEGORIES.items():
+        say(f"{label}: {added_by_category[slug]} / {targets.get(slug, 0)}")
     say(f"Tarikh namashkhas: {skipped_unknown_date}")
     say(f"Agahi hazf shode ya dar dastres nist: {skipped_unavailable}")
     say(f"Kol agahi haye unique: {total}")
@@ -632,16 +651,40 @@ def ask_int(prompt: str) -> int:
         say("Lotfan yek adad bozorgtar az sefr vared konid.")
 
 
-def ask_dates() -> Tuple[date, date]:
+def ask_dates() -> Tuple[Optional[date], Optional[date]]:
     while True:
+        start_raw = input("Tarikhe shoroo (khali = bedone filter): ").strip()
+        end_raw = input("Tarikhe payan (khali = bedone filter): ").strip()
+        if not start_raw and not end_raw:
+            return None, None
+        if not start_raw or not end_raw:
+            say("Har do tarikh ra vared konid ya har do ra khali bezarid.")
+            continue
         try:
-            start = jalali_input(input("Tarikhe shoroo (YYYY/MM/DD): "))
-            end = jalali_input(input("Tarikhe payan (YYYY/MM/DD): "))
+            start = jalali_input(start_raw)
+            end = jalali_input(end_raw)
             if start <= end:
                 return start, end
             say("Tarikhe shoroo bayad ghabl az tarikhe payan bashad.")
         except ValueError as exc:
             say(str(exc))
+
+
+def ask_category_targets() -> Dict[str, int]:
+    say("\nTedad morede nazar baraye har daste ra vared konid (0 = skip):")
+    targets = {}
+    for slug, label in CATEGORIES.items():
+        while True:
+            raw = ascii_digits(input(f"Tedad {label}: ").strip() or "0")
+            try:
+                value = int(raw)
+                if value >= 0:
+                    targets[slug] = value
+                    break
+            except ValueError:
+                pass
+            say("Lotfan adad sefr ya bishtar vared konid.")
+    return targets
 
 
 def show_stats(conn: sqlite3.Connection, state: Dict[str, Any]) -> None:
@@ -692,25 +735,29 @@ def main() -> None:
                 districts = [part.strip() for part in districts_raw.split(",") if part.strip()] or None
                 state["categories"] = {}
                 state["settings"] = {
-                    "start_date": start_date.isoformat(),
-                    "end_date": end_date.isoformat(),
+                    "start_date": start_date.isoformat() if start_date else None,
+                    "end_date": end_date.isoformat() if end_date else None,
+                    "date_filter_enabled": start_date is not None and end_date is not None,
                     "districts": districts,
                     "city_id": DEZFUL_CITY_ID,
                 }
                 save_state(state)
             else:
                 settings = state.get("settings", {})
-                if not settings.get("start_date") or not settings.get("end_date"):
+                if not settings:
                     say("Estekhraj ghabli vojood nadarad. Aval gozine 1 ra entekhab konid.")
                     continue
-                start_date = date.fromisoformat(settings["start_date"])
-                end_date = date.fromisoformat(settings["end_date"])
+                start_date = date.fromisoformat(settings["start_date"]) if settings.get("start_date") else None
+                end_date = date.fromisoformat(settings["end_date"]) if settings.get("end_date") else None
                 districts = settings.get("districts")
-                say(f"Bazeye sabt shode: {start_date} ta {end_date}")
+                if start_date and end_date:
+                    say(f"Bazeye sabt shode: {start_date} ta {end_date}")
+                else:
+                    say("Filter tarikh gheyr faal ast; jadidtarin agahiha aval sabt mishavand.")
 
-            target = ask_int("Tedade agahi jadid baraye ezafe shodan: ")
+            targets = ask_category_targets()
             process_extraction(
-                conn, state, target, start_date, end_date,
+                conn, state, targets, start_date, end_date,
                 settings.get("city_id", DEZFUL_CITY_ID) if choice == "2" else DEZFUL_CITY_ID,
                 districts,
             )

@@ -1,5 +1,10 @@
 import unittest
 from datetime import date
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
+
+from openpyxl import load_workbook
 
 import scrape_dezful as scraper
 
@@ -76,6 +81,40 @@ class ScraperTests(unittest.TestCase):
         result = scraper.make_listing(row, detail, "آپارتمان")
         self.assertEqual(result["سال_ساخت"], 1402)
         self.assertEqual(result["نوع_آگهی_دهنده"], "شخصی")
+
+
+    def test_blank_dates_disable_date_filter(self):
+        with patch("builtins.input", side_effect=["", ""]):
+            self.assertEqual(scraper.ask_dates(), (None, None))
+
+    def test_excel_links_are_hyperlinks_and_newest_rows_first(self):
+        with TemporaryDirectory() as temp_dir:
+            old_output = scraper.OUTPUT_DIR
+            old_excel = scraper.EXCEL_FILE
+            scraper.OUTPUT_DIR = Path(temp_dir)
+            scraper.EXCEL_FILE = Path(temp_dir) / "export.xlsx"
+            try:
+                conn = scraper.sqlite3.connect(":memory:")
+                conn.row_factory = scraper.sqlite3.Row
+                conn.execute("CREATE TABLE listings (id INTEGER PRIMARY KEY, token TEXT, payload TEXT, saved_at TEXT)")
+                for row_id, token in [(1, "old-token"), (2, "new-token")]:
+                    row = {"عنوان": token, "لینک": f"https://divar.ir/v/{token}", "توکن": token}
+                    conn.execute(
+                        "INSERT INTO listings(id,token,payload,saved_at) VALUES(?,?,?,?)",
+                        (row_id, token, scraper.json.dumps(row, ensure_ascii=False), "now"),
+                    )
+                conn.commit()
+                scraper.export_excel(conn)
+                book = load_workbook(scraper.EXCEL_FILE)
+                sheet = book["همه آگهی‌ها"]
+                self.assertEqual(sheet.cell(2, 1).value, 2)
+                link_cell = sheet.cell(2, scraper.COLUMNS.index("لینک") + 1)
+                self.assertEqual(link_cell.value, "مشاهده آگهی")
+                self.assertEqual(link_cell.hyperlink.target, "https://divar.ir/v/new-token")
+                conn.close()
+            finally:
+                scraper.OUTPUT_DIR = old_output
+                scraper.EXCEL_FILE = old_excel
 
     def test_detail_section_parser(self):
         payload = {"webengage": {"price": 3_000_000_000}, "sections": [

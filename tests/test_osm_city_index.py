@@ -17,6 +17,24 @@ class OSMCityIndexTests(unittest.TestCase):
         self.assertEqual(result["roads"][0]["name"], "بهاران ۵")
         self.assertEqual(result["areas"][0]["name"], "مصلا")
 
+    def test_relation_area_outer_members_are_stitched(self):
+        result = osm_city_index.parse_overpass({"elements": [{
+            "type": "relation", "id": 10,
+            "tags": {"place": "neighbourhood", "name": "محله نمونه"},
+            "members": [
+                {"type": "way", "role": "outer", "geometry": [
+                    {"lat": 32.37, "lon": 48.39}, {"lat": 32.37, "lon": 48.41}]},
+                {"type": "way", "role": "outer", "geometry": [
+                    {"lat": 32.37, "lon": 48.41}, {"lat": 32.39, "lon": 48.41}]},
+                {"type": "way", "role": "outer", "geometry": [
+                    {"lat": 32.39, "lon": 48.41}, {"lat": 32.39, "lon": 48.39}]},
+                {"type": "way", "role": "outer", "geometry": [
+                    {"lat": 32.39, "lon": 48.39}, {"lat": 32.37, "lon": 48.39}]}
+            ]
+        }]})
+        self.assertEqual(len(result["areas"]), 1)
+        self.assertEqual(len(result["areas"][0]["geometry"]), 5)
+
     def test_named_area_polygon_classifies_point(self):
         index = {"roads": [], "areas": [{"name": "مصلا", "geometry": [
             [32.37, 48.39], [32.37, 48.41], [32.39, 48.41],

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from openpyxl import load_workbook
 
 import scrape_dezful as scraper
+import neighborhoods
 
 
 class ScraperTests(unittest.TestCase):
@@ -82,6 +83,28 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["سال_ساخت"], 1402)
         self.assertEqual(result["نوع_آگهی_دهنده"], "شخصی")
 
+
+
+    def test_geojson_polygon_classifies_point_and_respects_hole(self):
+        with TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "areas.geojson"
+            feature = {"type":"Feature","properties":{"neighborhood":"مصلا","subarea":"بهاران، حدفاصل ۵ و ۶"},"geometry":{"type":"Polygon","coordinates":[[[48.39,32.37],[48.41,32.37],[48.41,32.39],[48.39,32.39],[48.39,32.37]],[[48.397,32.377],[48.403,32.377],[48.403,32.383],[48.397,32.383],[48.397,32.377]]]}}
+            path.write_text(scraper.json.dumps({"type":"FeatureCollection","features":[feature]},ensure_ascii=False),encoding="utf-8")
+            self.assertEqual(neighborhoods.classify_point(32.375,48.4,path),{"neighborhood":"مصلا","subarea":"بهاران، حدفاصل ۵ و ۶"})
+            self.assertIsNone(neighborhoods.classify_point(32.38,48.4,path))
+
+    def test_apply_map_neighborhood_overrides_divar_name(self):
+        with TemporaryDirectory() as temp_dir:
+            path=Path(temp_dir)/"areas.geojson"
+            feature={"type":"Feature","properties":{"name":"مصلا","label":"بهاران ۵ و ۶"},"geometry":{"type":"Polygon","coordinates":[[[48.39,32.37],[48.41,32.37],[48.41,32.39],[48.39,32.39],[48.39,32.37]]]}}
+            path.write_text(scraper.json.dumps({"type":"FeatureCollection","features":[feature]},ensure_ascii=False),encoding="utf-8")
+            old=neighborhoods.GEOJSON_FILE; neighborhoods.GEOJSON_FILE=path
+            try:
+                row=scraper.apply_map_neighborhood({"محله":"نام دیوار","عرض_جغرافیایی":32.38,"طول_جغرافیایی":48.4,"موقعیت_تقریبی":"خیر"})
+                self.assertEqual(row["محله"],"بهاران ۵ و ۶")
+                self.assertEqual(row["محله_نقشه"],"مصلا")
+            finally:
+                neighborhoods.GEOJSON_FILE=old
 
     def test_map_coordinates_are_saved_in_listing(self):
         row = {"token": "map-test", "title": "آپارتمان",

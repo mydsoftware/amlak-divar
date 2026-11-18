@@ -15,6 +15,7 @@ import jdatetime
 import pandas as pd
 import requests
 import divar_map
+import neighborhoods
 
 API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
@@ -35,7 +36,7 @@ CATEGORIES = {
 }
 COLUMNS = [
     "ردیف", "تاریخ انتشار", "عنوان", "دسته", "متراژ", "قیمت_کل",
-    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله",
+    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
     "نوع_آگهی_دهنده", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
 ]
 MONTHS = {
@@ -214,6 +215,7 @@ def export_excel(conn: sqlite3.Connection) -> None:
             row = json.loads(record["payload"])
         except (TypeError, json.JSONDecodeError):
             continue
+        row = apply_map_neighborhood(row)
         row["ردیف"] = record["id"]
         rows.append({column: row.get(column) for column in COLUMNS})
     frame = pd.DataFrame(rows, columns=COLUMNS)
@@ -452,6 +454,27 @@ def normalize_seller_type(value: Any) -> str:
     return "نامشخص"
 
 
+def apply_map_neighborhood(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Enrich a listing from locally maintained Dezful GeoJSON polygons."""
+    match = neighborhoods.classify_point(
+        row.get("عرض_جغرافیایی"), row.get("طول_جغرافیایی")
+    )
+    if match:
+        row["محله_نقشه"] = match.get("neighborhood", "")
+        row["محدوده_نقشه"] = match.get("subarea", "")
+        row["منبع_محله"] = (
+            "نقشه - مختصات تقریبی"
+            if row.get("موقعیت_تقریبی") == "بله"
+            else "نقشه - محدوده ترسیم‌شده"
+        )
+        row["محله"] = row["محدوده_نقشه"] or row["محله_نقشه"] or row.get("محله", "")
+    else:
+        row.setdefault("محله_نقشه", "")
+        row.setdefault("محدوده_نقشه", "")
+        row["منبع_محله"] = "دیوار" if row.get("محله") else ""
+    return row
+
+
 def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
                  category_label: str) -> Dict[str, Any]:
     token = search_row["token"]
@@ -471,7 +494,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
     price_per_meter = int(price / area) if price and area and area > 0 else None
     seller = normalize_seller_type(detail.get("business_type", ""))
     published = detail.get("posted_at")
-    return {
+    return apply_map_neighborhood({
         "تاریخ انتشار": published.isoformat() if published else "",
         "عنوان": detail.get("title") or search_row.get("title", ""),
         "دسته": category_label,
@@ -481,6 +504,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "سال_ساخت": build_year,
         "تعداد_اتاق": rooms,
         "محله": search_row.get("district") or detail.get("district", ""),
+        "محله_نقشه": "", "محدوده_نقشه": "", "منبع_محله": "",
         "نوع_آگهی_دهنده": seller,
         "عرض_جغرافیایی": search_row.get("latitude"),
         "طول_جغرافیایی": search_row.get("longitude"),
@@ -488,7 +512,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "توضیحات": (detail.get("description") or "")[:1500],
         "لینک": f"https://divar.ir/v/{token}",
         "توکن": token,
-    }
+    })
 
 
 def district_matches(row: Dict[str, Any], districts: Optional[List[str]]) -> bool:

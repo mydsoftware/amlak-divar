@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ویرایش محدوده محله‌های دزفول</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+<style>html,body,#map{height:100%;margin:0;font-family:Tahoma}.panel{position:absolute;z-index:1000;top:10px;right:60px;background:white;padding:12px;border-radius:8px;box-shadow:0 1px 8px #777;max-width:300px}.panel input{width:100%;box-sizing:border-box;margin:5px 0;padding:7px}.panel button{padding:8px;margin:4px 0;width:100%}small{display:block;line-height:1.8}</style></head>
+<body><div id="map"></div><div class="panel"><b>تعریف محدوده‌های ملکی دزفول</b>
+<small>با ابزار چندضلعی محدوده را دورگیری کنید. نام محله و محدوده جزئی‌تر را وارد و برای همان محدوده ثبت کنید.</small>
+<input id="n" placeholder="محله اصلی؛ مثال: مصلا"><input id="s" placeholder="محدوده؛ مثال: بهاران، حدفاصل بهاران ۵ و ۶">
+<button id="save">ثبت نام برای محدوده انتخاب‌شده</button><button id="export">دانلود GeoJSON</button><button id="import">بارگذاری GeoJSON قبلی</button><input id="file" type="file" accept=".json,.geojson" hidden><small id="status">فایل خروجی را در پوشه data پروژه قرار دهید.</small></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script>
+const map=L.map('map').setView([32.383,48.405],14);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(map);
+const group=new L.FeatureGroup().addTo(map);map.addControl(new L.Control.Draw({draw:{polyline:false,rectangle:false,circle:false,circlemarker:false,marker:false},edit:{featureGroup:group}}));
+map.on(L.Draw.Event.CREATED,e=>{group.addLayer(e.layer);document.getElementById('status').textContent='محدوده رسم شد؛ نام آن را ثبت کنید.'});
+function latest(){let a=[];group.eachLayer(l=>a.push(l));return a[a.length-1]}
+document.getElementById('save').onclick=()=>{let l=latest();if(!l){alert('ابتدا محدوده رسم کنید.');return}l.feature=l.feature||{type:'Feature',properties:{}};l.feature.properties={neighborhood:document.getElementById('n').value.trim(),subarea:document.getElementById('s').value.trim()};l.bindPopup(l.feature.properties.neighborhood+' - '+l.feature.properties.subarea);document.getElementById('status').textContent='نام‌گذاری شد.'};
+document.getElementById('export').onclick=()=>{let features=[];group.eachLayer(l=>{if(l.feature&&l.feature.properties&&l.feature.properties.neighborhood)features.push(l.toGeoJSON())});let blob=new Blob([JSON.stringify({type:'FeatureCollection',features},null,2)],{type:'application/geo+json'});let a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='neighborhoods_dezful.geojson';a.click();URL.revokeObjectURL(a.href);document.getElementById('status').textContent=features.length+' محدوده خروجی گرفته شد.'};
+document.getElementById('import').onclick=()=>document.getElementById('file').click();document.getElementById('file').onchange=async e=>{try{let d=JSON.parse(await e.target.files[0].text());group.clearLayers();L.geoJSON(d,{onEachFeature:(f,l)=>{l.feature=f;group.addLayer(l)}});document.getElementById('status').textContent='محدوده‌ها بارگذاری شدند.'}catch(e){alert('GeoJSON نامعتبر است.')}};
+</script></body></html>

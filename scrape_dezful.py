@@ -216,7 +216,7 @@ def export_excel(conn: sqlite3.Connection) -> None:
             row = json.loads(record["payload"])
         except (TypeError, json.JSONDecodeError):
             continue
-        row = apply_map_neighborhood(row)
+        row = apply_osm_neighborhood(row, conn, allow_network=False)
         row["ردیف"] = record["id"]
         rows.append({column: row.get(column) for column in COLUMNS})
     frame = pd.DataFrame(rows, columns=COLUMNS)

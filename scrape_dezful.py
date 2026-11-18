@@ -479,7 +479,8 @@ def apply_map_neighborhood(row: Dict[str, Any]) -> Dict[str, Any]:
     else:
         row.setdefault("محله_نقشه", "")
         row.setdefault("محدوده_نقشه", "")
-        row["منبع_محله"] = "دیوار" if row.get("محله") else ""
+        if not row.get("منبع_محله"):
+            row["منبع_محله"] = "دیوار" if row.get("محله") else ""
     return row
 
 

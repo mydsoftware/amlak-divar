@@ -4,7 +4,7 @@ import osm_city_index
 
 
 class OSMCityIndexTests(unittest.TestCase):
-    def test_parse_named_roads_and_residential_areas(self):
+    def test_parse_named_roads_and_neighborhood_areas(self):
         result = osm_city_index.parse_overpass({"elements": [
             {"type": "way", "id": 1, "tags": {"highway": "residential", "name": "بهاران ۵"},
              "geometry": [{"lat": 32.38, "lon": 48.40}, {"lat": 32.381, "lon": 48.40}]},
@@ -16,6 +16,13 @@ class OSMCityIndexTests(unittest.TestCase):
         self.assertEqual(len(result["roads"]), 1)
         self.assertEqual(result["roads"][0]["name"], "بهاران ۵")
         self.assertEqual(result["areas"][0]["name"], "مصلا")
+        residential_only = osm_city_index.parse_overpass({"elements": [{
+            "type": "way", "id": 3, "tags": {"landuse": "residential", "name": "دزفول"},
+            "geometry": [{"lat": 32.3, "lon": 48.3}, {"lat": 32.3, "lon": 48.5},
+                         {"lat": 32.48, "lon": 48.5}, {"lat": 32.48, "lon": 48.3},
+                         {"lat": 32.3, "lon": 48.3}]
+        }]})
+        self.assertEqual(residential_only["areas"], [])
 
     def test_relation_area_outer_members_are_stitched(self):
         result = osm_city_index.parse_overpass({"elements": [{
@@ -51,6 +58,15 @@ class OSMCityIndexTests(unittest.TestCase):
         self.assertEqual(result["street"], "خیابان بهاران ۵")
         self.assertEqual(result["neighborhood"], "")
         self.assertGreater(result["confidence"], 0)
+
+    def test_neighborhood_polygon_does_not_hide_street_and_city_name_is_ignored(self):
+        index = {'areas': [
+            {'name': 'دزفول', 'geometry': [[32.30, 48.30], [32.30, 48.50], [32.48, 48.50], [32.48, 48.30], [32.30, 48.30]]},
+            {'name': 'بهاران', 'geometry': [[32.379, 48.39], [32.379, 48.41], [32.381, 48.41], [32.381, 48.39], [32.379, 48.39]]}
+        ], 'roads': [{'name': 'خیابان بهاران', 'highway': 'residential', 'geometry': [[32.38, 48.39], [32.38, 48.41]]}]}
+        result = osm_city_index.classify_point(32.3801, 48.40, index)
+        self.assertEqual(result['neighborhood'], 'بهاران')
+        self.assertEqual(result['street'], 'خیابان بهاران')
 
     def test_between_streets_requires_parallel_roads_on_opposite_sides(self):
         index = {"areas": [], "roads": [

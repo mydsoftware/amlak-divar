@@ -742,6 +742,40 @@ def ask_category_targets() -> Dict[str, int]:
     return targets
 
 
+def ask_keep_previous_data() -> bool:
+    say("\\nEtelaate estekhraj haye ghabli ham dar nazar gerefte shavad?")
+    say("1. Bale - data haye ghabli hefz shavad va agahi haye tekrari dobare sabt nashavand")
+    say("2. Na - shoroo az sefr (az database backup gerefte mishavad)")
+    while True:
+        choice = input("Entekhab konid (1/2): ").strip()
+        if choice == "1":
+            return True
+        if choice == "2":
+            return False
+        say("Lotfan 1 ya 2 ra vared konid.")
+
+
+def reset_collection(conn: sqlite3.Connection, state: Dict[str, Any]) -> None:
+    """Back up the current SQLite database, then clear collected listings."""
+    if conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]:
+        backup_dir = DATA_DIR / "backup"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"amlak_{stamp}.sqlite3"
+        backup_conn = sqlite3.connect(backup_path)
+        try:
+            conn.backup(backup_conn)
+        finally:
+            backup_conn.close()
+        say(f"Backup data haye ghabli: {backup_path}")
+    conn.execute("DELETE FROM listings")
+    conn.commit()
+    state["categories"] = {}
+    state["settings"] = {}
+    save_state(state)
+    say("Database va vazeyat estekhraj az sefr shod.")
+
+
 def show_stats(conn: sqlite3.Connection, state: Dict[str, Any]) -> None:
     total = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
     next_id = conn.execute("SELECT COALESCE(MAX(id),0)+1 FROM listings").fetchone()[0]
@@ -786,6 +820,9 @@ def main() -> None:
 
             bbox = None
             if choice == "1":
+                keep_previous = ask_keep_previous_data()
+                if not keep_previous:
+                    reset_collection(conn, state)
                 start_date, end_date = ask_dates()
                 districts_raw = input("Mahalleha (ba virgool, khali baraye hame): ").strip()
                 districts = [part.strip() for part in districts_raw.split(",") if part.strip()] or None

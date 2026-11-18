@@ -139,13 +139,14 @@ def download_index(path: Path = DATA_FILE, session: Optional[requests.Session] =
 
 def load_index(path: Path = DATA_FILE) -> Dict[str, Any]:
     global _INDEX
-    if _INDEX is not None and path == DATA_FILE:
+    if _INDEX is not None and path == DATA_FILE and int(_INDEX.get("version", 0)) >= 2:
         return _INDEX
     if not path.exists():
         raise FileNotFoundError(f"OSM index not found: {path}")
     index = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(index, dict) or not isinstance(index.get("roads"), list):
-        raise ValueError("OSM index file is invalid")
+    if (not isinstance(index, dict) or not isinstance(index.get("roads"), list)
+            or int(index.get("version", 0)) < 2):
+        raise ValueError("OSM index is outdated or invalid; rebuild required")
     if path == DATA_FILE:
         _INDEX = index
     return index

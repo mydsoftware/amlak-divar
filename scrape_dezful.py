@@ -18,8 +18,8 @@ BASE_URL = "https://api.divar.ir/v8"
 SEARCH_URL = f"{BASE_URL}/postlist/w/search"
 POST_URL = f"{BASE_URL}/posts-v2/web"
 
-# شناسه شهر دزفول - حتماً با find_city_id.py یا Network tab مرورگر چک کنید
-DEZFUL_CITY_ID = "25"
+# شناسه شهر دزفول
+DEZFUL_CITY_ID = "23"
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

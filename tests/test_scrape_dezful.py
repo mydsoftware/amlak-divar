@@ -83,6 +83,30 @@ class ScraperTests(unittest.TestCase):
         self.assertEqual(result["نوع_آگهی_دهنده"], "شخصی")
 
 
+    def test_map_coordinates_are_saved_in_listing(self):
+        row = {"token": "map-test", "title": "آپارتمان",
+               "latitude": 32.38, "longitude": 48.40,
+               "approximate_location": False}
+        detail = {
+            "attributes": {}, "price": None, "business_type": "personal",
+            "posted_at": None, "title": "آپارتمان",
+            "description": "", "district": "بهاران",
+        }
+        result = scraper.make_listing(row, detail, "آپارتمان")
+        self.assertEqual(result["عرض_جغرافیایی"], 32.38)
+        self.assertEqual(result["طول_جغرافیایی"], 48.40)
+        self.assertEqual(result["موقعیت_تقریبی"], "خیر")
+
+    def test_non_map_listing_has_no_approximate_location_flag(self):
+        row = {"token": "regular-test", "title": "آپارتمان"}
+        detail = {
+            "attributes": {}, "price": None, "business_type": "personal",
+            "posted_at": None, "title": "آپارتمان",
+            "description": "", "district": "بهاران",
+        }
+        result = scraper.make_listing(row, detail, "آپارتمان")
+        self.assertEqual(result["موقعیت_تقریبی"], "")
+
     def test_blank_dates_disable_date_filter(self):
         with patch("builtins.input", side_effect=["", ""]):
             self.assertEqual(scraper.ask_dates(), (None, None))

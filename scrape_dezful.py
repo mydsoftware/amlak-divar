@@ -739,6 +739,32 @@ def open_url_for_platform(url: str) -> bool:
 
     is_termux = bool(os.environ.get("TERMUX_VERSION")) or "com.termux" in os.environ.get("PREFIX", "")
     if is_termux:
+        # Force a real browser package so Android does not hand Divar links
+        # to the installed Divar app through the generic VIEW intent.
+        am = shutil.which("am") or "/system/bin/am"
+        browser_packages = (
+            "com.android.chrome",
+            "org.mozilla.firefox",
+            "com.brave.browser",
+            "com.microsoft.emmx",
+            "com.sec.android.app.sbrowser",
+            "com.opera.browser",
+            "com.duckduckgo.mobile.android",
+        )
+        for package in browser_packages:
+            try:
+                result = subprocess.run(
+                    [am, "start", "-a", "android.intent.action.VIEW",
+                     "-d", url, "-p", package],
+                    check=True, timeout=10,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                if result.returncode == 0:
+                    return True
+            except (OSError, subprocess.SubprocessError):
+                continue
+
+        # Last resort: Android's default handler (may open the Divar app).
         command = shutil.which("termux-open-url")
         if command:
             try:

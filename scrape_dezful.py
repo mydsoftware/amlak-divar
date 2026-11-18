@@ -671,7 +671,7 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
 
 def open_divar_map_picker() -> bool:
     """Open Divar Dezful residential property listings for map selection."""
-    say("\\nDar hale baz kardan map-e amlak-e Divar hastim...")
+    say("\nDar hale baz kardan map-e amlak-e Divar hastim...")
     say("Dar safheye baz shode, namayeshe map ra entekhab konid va mahdude mored nazar ra set konid.")
     say("Pas az entekhab mahdude, link ra copy karde va dar inja paste konid.")
     try:

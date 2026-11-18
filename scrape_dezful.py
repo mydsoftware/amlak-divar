@@ -16,7 +16,7 @@ import pandas as pd
 import requests
 import divar_map
 import neighborhoods
-import osm_neighborhoods
+import osm_city_index
 
 API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
@@ -37,7 +37,7 @@ CATEGORIES = {
 }
 COLUMNS = [
     "ردیف", "تاریخ انتشار", "عنوان", "دسته", "متراژ", "قیمت_کل",
-    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_خودکار", "خیابان_خودکار", "محدوده_خودکار", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
+    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_خودکار", "خیابان_خودکار", "خیابان‌های_نزدیک", "محدوده_خودکار", "اطمینان_تشخیص", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
     "نوع_آگهی_دهنده", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
 ]
 MONTHS = {
@@ -167,13 +167,6 @@ def db_connect() -> sqlite3.Connection:
             token TEXT NOT NULL UNIQUE,
             payload TEXT NOT NULL,
             saved_at TEXT NOT NULL
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS osm_geocode_cache (
-            lat REAL NOT NULL, lon REAL NOT NULL, payload TEXT NOT NULL,
-            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY(lat, lon)
         )
     """)
     conn.commit()
@@ -486,30 +479,30 @@ def apply_map_neighborhood(row: Dict[str, Any]) -> Dict[str, Any]:
 
 def apply_osm_neighborhood(row: Dict[str, Any], conn: sqlite3.Connection,
                            allow_network: bool = True) -> Dict[str, Any]:
-    """Fill street/neighborhood from OSM; drawn GeoJSON boundaries remain authoritative."""
+    """Classify coordinates against a locally cached bulk OSM street/area index."""
     lat, lon = row.get("عرض_جغرافیایی"), row.get("طول_جغرافیایی")
     if lat is None or lon is None:
-        return row
+        return apply_map_neighborhood(row)
     try:
-        if allow_network:
-            result = osm_neighborhoods.reverse_lookup(lat, lon, conn, SESSION)
-        else:
-            key = (round(float(lat), 4), round(float(lon), 4))
-            cached = conn.execute(
-                "SELECT payload FROM osm_geocode_cache WHERE lat=? AND lon=?", key
-            ).fetchone()
-            result = json.loads(cached[0]) if cached else {}
+        index = (osm_city_index.ensure_index() if allow_network
+                 else osm_city_index.load_index())
+        result = osm_city_index.classify_point(
+            lat, lon, index=index, approximate=row.get("موقعیت_تقریبی") == "بله"
+        )
     except Exception as exc:
-        say(f"OSM geocoding dar dastres nist: {type(exc).__name__}; mahale Divar hefz shod.")
-        return row
-    row["محله_خودکار"] = result.get("neighborhood", "")
-    row["خیابان_خودکار"] = result.get("road", "")
-    row["محدوده_خودکار"] = result.get("district", "")
-    if result.get("neighborhood") or result.get("road"):
-        row["منبع_محله"] = "OpenStreetMap (Nominatim)"
-        row["محله"] = result.get("neighborhood") or row.get("محله", "")
-    return apply_map_neighborhood(row)
+        say(f"OSM city map dar dastres nist: {type(exc).__name__}; mahale Divar hefz shod.")
+        return apply_map_neighborhood(row)
 
+    row["محله_خودکار"] = result.get("neighborhood", "")
+    row["خیابان_خودکار"] = result.get("street", "")
+    row["خیابان‌های_نزدیک"] = "، ".join(result.get("nearby_streets", []))
+    row["محدوده_خودکار"] = result.get("subarea", "")
+    row["اطمینان_تشخیص"] = result.get("confidence", "")
+    if result.get("neighborhood"):
+        row["محله"] = result["neighborhood"]
+    if result.get("source"):
+        row["منبع_محله"] = result["source"]
+    return apply_map_neighborhood(row)
 
 def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
                  category_label: str) -> Dict[str, Any]:
@@ -540,7 +533,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "سال_ساخت": build_year,
         "تعداد_اتاق": rooms,
         "محله": search_row.get("district") or detail.get("district", ""),
-        "محله_خودکار": "", "خیابان_خودکار": "", "محدوده_خودکار": "",
+        "محله_خودکار": "", "خیابان_خودکار": "", "خیابان‌های_نزدیک": "", "محدوده_خودکار": "", "اطمینان_تشخیص": "",
         "محله_نقشه": "", "محدوده_نقشه": "", "منبع_محله": "",
         "نوع_آگهی_دهنده": seller,
         "عرض_جغرافیایی": search_row.get("latitude"),

@@ -50,6 +50,39 @@ def build_query(bbox: Tuple[float, float, float, float] = DEZFUL_BBOX) -> str:
 out tags geom;"""
 
 
+def _relation_outer_rings(members: Any) -> List[List[Tuple[float, float]]]:
+    segments = []
+    for member in members if isinstance(members, list) else []:
+        if member.get("role") != "outer":
+            continue
+        geometry = _valid_geometry(member.get("geometry"))
+        if len(geometry) >= 2:
+            segments.append(geometry)
+    rings = []
+    while segments:
+        ring = segments.pop(0)
+        changed = True
+        while changed and ring[0] != ring[-1]:
+            changed = False
+            for i, segment in enumerate(segments):
+                if ring[-1] == segment[0]:
+                    ring.extend(segment[1:])
+                elif ring[-1] == segment[-1]:
+                    ring.extend(reversed(segment[:-1]))
+                elif ring[0] == segment[-1]:
+                    ring = segment[:-1] + ring
+                elif ring[0] == segment[0]:
+                    ring = list(reversed(segment[1:])) + ring
+                else:
+                    continue
+                segments.pop(i)
+                changed = True
+                break
+        if len(ring) >= 4 and ring[0] == ring[-1]:
+            rings.append(ring)
+    return rings
+
+
 def parse_overpass(payload: Dict[str, Any]) -> Dict[str, Any]:
     roads, areas = [], []
     seen = set()
@@ -59,10 +92,8 @@ def parse_overpass(payload: Dict[str, Any]) -> Dict[str, Any]:
         if not name:
             continue
         geometry = _valid_geometry(element.get("geometry"))
-        if len(geometry) < 2:
-            continue
         kind = str(tags.get("highway") or "")
-        if kind:
+        if kind and len(geometry) >= 2:
             key = (element.get("type"), element.get("id"), name)
             if key not in seen:
                 roads.append({"name": name, "highway": kind, "geometry": geometry})
@@ -71,8 +102,13 @@ def parse_overpass(payload: Dict[str, Any]) -> Dict[str, Any]:
             tags.get("place") in {"neighbourhood", "suburb", "quarter", "locality"}
             or tags.get("landuse") == "residential"
         )
-        if is_area and len(geometry) >= 4 and geometry[0] == geometry[-1]:
-            areas.append({"name": name, "geometry": geometry})
+        if not is_area:
+            continue
+        geometries = [geometry] if len(geometry) >= 4 and geometry[0] == geometry[-1] else []
+        if not geometries and element.get("type") == "relation":
+            geometries = _relation_outer_rings(element.get("members"))
+        for ring in geometries:
+            areas.append({"name": name, "geometry": ring})
     return {"version": 1, "source": "© OpenStreetMap contributors",
             "roads": roads, "areas": areas}
 
@@ -204,7 +240,7 @@ def classify_point(latitude: Any, longitude: Any, index: Optional[Dict[str, Any]
     if approximate:
         confidence = min(confidence, 0.55)
     if confidence < 0.45:
-        confidence = 0.0
+        return {}
     return {"neighborhood": "", "street": first["name"], "subarea": subarea,
             "nearby_streets": [item["name"] for item in roads[:3]],
             "distance_m": round(first["distance"], 1),

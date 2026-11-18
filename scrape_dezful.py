@@ -16,6 +16,7 @@ import pandas as pd
 import requests
 import divar_map
 import neighborhoods
+import osm_neighborhoods
 
 API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
@@ -36,7 +37,7 @@ CATEGORIES = {
 }
 COLUMNS = [
     "ردیف", "تاریخ انتشار", "عنوان", "دسته", "متراژ", "قیمت_کل",
-    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
+    "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_خودکار", "خیابان_خودکار", "محدوده_خودکار", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
     "نوع_آگهی_دهنده", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
 ]
 MONTHS = {
@@ -166,6 +167,13 @@ def db_connect() -> sqlite3.Connection:
             token TEXT NOT NULL UNIQUE,
             payload TEXT NOT NULL,
             saved_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS osm_geocode_cache (
+            lat REAL NOT NULL, lon REAL NOT NULL, payload TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(lat, lon)
         )
     """)
     conn.commit()
@@ -475,6 +483,33 @@ def apply_map_neighborhood(row: Dict[str, Any]) -> Dict[str, Any]:
     return row
 
 
+def apply_osm_neighborhood(row: Dict[str, Any], conn: sqlite3.Connection,
+                           allow_network: bool = True) -> Dict[str, Any]:
+    """Fill street/neighborhood from OSM; drawn GeoJSON boundaries remain authoritative."""
+    lat, lon = row.get("عرض_جغرافیایی"), row.get("طول_جغرافیایی")
+    if lat is None or lon is None:
+        return row
+    try:
+        if allow_network:
+            result = osm_neighborhoods.reverse_lookup(lat, lon, conn, SESSION)
+        else:
+            key = (round(float(lat), 4), round(float(lon), 4))
+            cached = conn.execute(
+                "SELECT payload FROM osm_geocode_cache WHERE lat=? AND lon=?", key
+            ).fetchone()
+            result = json.loads(cached[0]) if cached else {}
+    except Exception as exc:
+        say(f"OSM geocoding dar dastres nist: {type(exc).__name__}; mahale Divar hefz shod.")
+        return row
+    row["محله_خودکار"] = result.get("neighborhood", "")
+    row["خیابان_خودکار"] = result.get("road", "")
+    row["محدوده_خودکار"] = result.get("district", "")
+    if result.get("neighborhood") or result.get("road"):
+        row["منبع_محله"] = "OpenStreetMap (Nominatim)"
+        row["محله"] = result.get("neighborhood") or row.get("محله", "")
+    return apply_map_neighborhood(row)
+
+
 def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
                  category_label: str) -> Dict[str, Any]:
     token = search_row["token"]
@@ -504,6 +539,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "سال_ساخت": build_year,
         "تعداد_اتاق": rooms,
         "محله": search_row.get("district") or detail.get("district", ""),
+        "محله_خودکار": "", "خیابان_خودکار": "", "محدوده_خودکار": "",
         "محله_نقشه": "", "محدوده_نقشه": "", "منبع_محله": "",
         "نوع_آگهی_دهنده": seller,
         "عرض_جغرافیایی": search_row.get("latitude"),
@@ -633,6 +669,7 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
 
             detail = extract_detail_fields(detail_payload)
             row = make_listing(item, detail, label)
+            row = apply_osm_neighborhood(row, conn, allow_network=True)
             published = detail.get("posted_at")
             if start_date is not None and end_date is not None and published is None:
                 skipped_unknown_date += 1

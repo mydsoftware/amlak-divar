@@ -106,24 +106,23 @@ class ScraperTests(unittest.TestCase):
             finally:
                 neighborhoods.GEOJSON_FILE=old
 
-    def test_osm_enrichment_sets_neighborhood_and_preserves_source(self):
+    def test_osm_city_index_enrichment_preserves_divar_neighborhood_without_polygon(self):
         conn = scraper.sqlite3.connect(":memory:")
-        conn.execute("""
-            CREATE TABLE osm_geocode_cache (
-                lat REAL NOT NULL, lon REAL NOT NULL, payload TEXT NOT NULL,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                PRIMARY KEY(lat, lon)
-            )
-        """)
         row = {"محله": "نام دیوار", "عرض_جغرافیایی": 32.38,
                "طول_جغرافیایی": 48.40, "موقعیت_تقریبی": "خیر"}
-        with patch.object(scraper.osm_neighborhoods, "reverse_lookup",
-                          return_value={"neighborhood": "مصلا", "road": "بهاران ۵",
-                                        "district": "مرکز شهر"}):
+        with patch.object(scraper.osm_city_index, "ensure_index", return_value={
+            "roads": [], "areas": []
+        }), patch.object(scraper.osm_city_index, "classify_point", return_value={
+            "neighborhood": "", "street": "بهاران ۵", "subarea": "",
+            "nearby_streets": ["بهاران ۵", "بهاران ۶"],
+            "confidence": 0.88, "source": "OSM road network"
+        }):
             result = scraper.apply_osm_neighborhood(row, conn)
-        self.assertEqual(result["محله"], "مصلا")
+        self.assertEqual(result["محله"], "نام دیوار")
         self.assertEqual(result["خیابان_خودکار"], "بهاران ۵")
-        self.assertEqual(result["منبع_محله"], "OpenStreetMap (Nominatim)")
+        self.assertEqual(result["خیابان‌های_نزدیک"], "بهاران ۵، بهاران ۶")
+        self.assertEqual(result["اطمینان_تشخیص"], 0.88)
+        self.assertEqual(result["منبع_محله"], "OSM road network")
         conn.close()
 
     def test_map_coordinates_are_saved_in_listing(self):

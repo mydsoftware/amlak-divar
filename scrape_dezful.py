@@ -275,9 +275,8 @@ def search_body(category: str, city_id: str, districts: Optional[List[str]],
             },
         },
     }
-    if districts:
-        # Text query is only a broad server-side hint; exact filtering is local.
-        body["search_data"]["query"] = " ".join(districts)
+    # District names are not valid numeric district IDs. Do not send them as
+    # free-text query terms; filter against the returned Persian district locally.
     if cursor:
         pagination = dict(cursor)
         pagination.pop("@type", None)
@@ -483,6 +482,11 @@ def category_state(state: Dict[str, Any], slug: str) -> Dict[str, Any]:
     value.setdefault("page", 1)
     value.setdefault("pending", [])
     value.setdefault("has_next", True)
+    # Migrate v2 checkpoints: old cursors were stored as a bare last_post_date string.
+    if isinstance(value.get("cursor"), str):
+        value["cursor"] = {"last_post_date": value["cursor"]}
+    if isinstance(value.get("next_cursor"), str):
+        value["next_cursor"] = {"last_post_date": value["next_cursor"]}
     # Migrate the previous version's pending token strings.
     value["pending"] = [
         item if isinstance(item, dict) else {"token": str(item)}

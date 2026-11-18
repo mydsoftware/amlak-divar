@@ -238,7 +238,7 @@ def export_excel(conn: sqlite3.Connection) -> None:
             summary.to_excel(writer, sheet_name="خلاصه قیمت مناطق", index=False)
         temp.replace(EXCEL_FILE)
     except PermissionError:
-        say("HOSHdar: file Excel baz ast. Excel ra ببندید va dobare export konid.")
+        say("HOSHdar: file Excel baz ast. Excel ra bebandid va dobare export konid.")
         if temp.exists():
             temp.unlink()
         raise

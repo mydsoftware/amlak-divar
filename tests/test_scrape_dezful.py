@@ -41,6 +41,22 @@ class ScraperTests(unittest.TestCase):
     def test_jalali_input(self):
         self.assertEqual(scraper.jalali_input("1405/08/01"), date(2026, 10, 23))
 
+
+    def test_legacy_checkpoint_migration(self):
+        state = {"categories": {"apartment-sell": {
+            "cursor": "2026-11-01T10:00:00Z",
+            "next_cursor": "2026-10-31T10:00:00Z",
+            "pending": ["legacy-token"],
+        }}}
+        migrated = scraper.category_state(state, "apartment-sell")
+        self.assertEqual(migrated["cursor"]["last_post_date"], "2026-11-01T10:00:00Z")
+        self.assertEqual(migrated["next_cursor"]["last_post_date"], "2026-10-31T10:00:00Z")
+        self.assertEqual(migrated["pending"][0]["token"], "legacy-token")
+
+    def test_district_names_are_not_sent_as_free_text_query(self):
+        body = scraper.search_body("apartment-sell", "23", ["بهاران"], None, 1)
+        self.assertNotIn("query", body["search_data"])
+
     def test_detail_section_parser(self):
         payload = {"webengage": {"price": 3_000_000_000}, "sections": [
             {"section_name": "TITLE", "widgets": [

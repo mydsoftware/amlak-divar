@@ -52,7 +52,8 @@ def _contains(geometry: Dict[str, Any], lon: float, lat: float) -> bool:
     return False
 
 
-def load_areas(path: Path = GEOJSON_FILE):
+def load_areas(path: Optional[Path] = None):
+    path = path or GEOJSON_FILE
     if not path.exists():
         return []
     try:
@@ -68,7 +69,8 @@ def load_areas(path: Path = GEOJSON_FILE):
     return [f for f in features if isinstance(f,dict) and isinstance(f.get("geometry"),dict) and f["geometry"].get("type") in ("Polygon","MultiPolygon")]
 
 
-def classify_point(latitude: Any, longitude: Any, path: Path = GEOJSON_FILE) -> Optional[Dict[str, str]]:
+def classify_point(latitude: Any, longitude: Any, path: Optional[Path] = None) -> Optional[Dict[str, str]]:
+    path = path or GEOJSON_FILE
     lat, lon = _number(latitude), _number(longitude)
     if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return None

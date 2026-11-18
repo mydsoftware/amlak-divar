@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import jdatetime
 import pandas as pd
 import requests
+import divar_map
 
 API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
@@ -33,7 +34,7 @@ CATEGORIES = {
 COLUMNS = [
     "ردیف", "تاریخ انتشار", "عنوان", "دسته", "متراژ", "قیمت_کل",
     "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله",
-    "نوع_آگهی_دهنده", "توضیحات", "لینک", "توکن",
+    "نوع_آگهی_دهنده", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
 ]
 MONTHS = {
     "فروردین": 1, "اردیبهشت": 2, "خرداد": 3, "تیر": 4,
@@ -479,6 +480,9 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "تعداد_اتاق": rooms,
         "محله": search_row.get("district") or detail.get("district", ""),
         "نوع_آگهی_دهنده": seller,
+        "عرض_جغرافیایی": search_row.get("latitude"),
+        "طول_جغرافیایی": search_row.get("longitude"),
+        "موقعیت_تقریبی": "بله" if search_row.get("approximate_location", True) else "خیر",
         "توضیحات": (detail.get("description") or "")[:1500],
         "لینک": f"https://divar.ir/v/{token}",
         "توکن": token,
@@ -516,7 +520,7 @@ def category_state(state: Dict[str, Any], slug: str) -> Dict[str, Any]:
 
 def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets: Dict[str, int],
                        start_date: Optional[date], end_date: Optional[date], city_id: str,
-                       districts: Optional[List[str]]) -> None:
+                       districts: Optional[List[str]], bbox: Optional[Dict[str, float]] = None) -> None:
     added_by_category = {slug: 0 for slug in CATEGORIES}
     added = 0
     skipped_unknown_date = 0
@@ -530,29 +534,46 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
         say(f"\nDaste: {label} | Hadaf: {category_target}")
         while added_by_category[slug] < category_target:
             if not progress["pending"]:
-                if not progress["has_next"]:
-                    break
-                try:
-                    rows, next_cursor, has_next = get_search_page(
-                        slug, city_id, districts, progress.get("cursor"), progress["page"]
-                    )
-                except Exception as exc:
-                    save_state(state)
-                    say(f"Khata dar search: {type(exc).__name__}. Check internet va dobare ejra konid.")
-                    return
-                if not rows:
+                if bbox is not None:
+                    if progress.get("map_loaded"):
+                        break
+                    try:
+                        rows = divar_map.search(slug, city_id, bbox, SESSION)
+                    except Exception as exc:
+                        save_state(state)
+                        say(f"Khata dar map search: {type(exc).__name__}. Map link ya internet ra check konid.")
+                        return
+                    progress["pending"] = rows
+                    progress["map_loaded"] = True
                     progress["has_next"] = False
                     save_state(state)
-                    break
-                if progress.get("cursor") and next_cursor == progress.get("cursor"):
-                    progress["has_next"] = False
+                    say(f"Agahi peyda shode dar map: {len(rows)}")
+                    if not rows:
+                        break
+                else:
+                    if not progress["has_next"]:
+                        break
+                    try:
+                        rows, next_cursor, has_next = get_search_page(
+                            slug, city_id, districts, progress.get("cursor"), progress["page"]
+                        )
+                    except Exception as exc:
+                        save_state(state)
+                        say(f"Khata dar search: {type(exc).__name__}. Check internet va dobare ejra konid.")
+                        return
+                    if not rows:
+                        progress["has_next"] = False
+                        save_state(state)
+                        break
+                    if progress.get("cursor") and next_cursor == progress.get("cursor"):
+                        progress["has_next"] = False
+                        save_state(state)
+                        say("Pagination cursor taghir nakard; baraye jelogiri az loop motavaghef shod.")
+                        break
+                    progress["pending"] = rows
+                    progress["next_cursor"] = next_cursor
+                    progress["next_has_next"] = has_next
                     save_state(state)
-                    say("Pagination cursor taghir nakard; baraye jelogiri az loop motavaghef shod.")
-                    break
-                progress["pending"] = rows
-                progress["next_cursor"] = next_cursor
-                progress["next_has_next"] = has_next
-                save_state(state)
 
             item = progress["pending"][0]
             token = item.get("token", "")
@@ -594,11 +615,13 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
                 return
             elif start_date is not None and end_date is not None and published.date() > end_date:
                 progress["pending"].pop(0)
-            elif start_date is not None and end_date is not None and published.date() < start_date:
-                # Newest-first order: this category has crossed the requested start date.
+            elif start_date is not None and end_date is not None and published.date() < start_date and bbox is None:
+                # Search endpoint is newest-first; map viewport order is not guaranteed.
                 progress["pending"].clear()
                 progress["has_next"] = False
                 progress["next_has_next"] = False
+            elif start_date is not None and end_date is not None and published.date() < start_date:
+                progress["pending"].pop(0)
             elif not district_matches(row, districts):
                 progress["pending"].pop(0)
             else:
@@ -619,10 +642,11 @@ def process_extraction(conn: sqlite3.Connection, state: Dict[str, Any], targets:
             if not progress["pending"]:
                 next_cursor = progress.pop("next_cursor", None)
                 next_has_next = progress.pop("next_has_next", False)
-                if next_cursor:
-                    progress["cursor"] = next_cursor
-                    progress["page"] += 1
-                progress["has_next"] = bool(next_has_next) and bool(next_cursor)
+                if bbox is None:
+                    if next_cursor:
+                        progress["cursor"] = next_cursor
+                        progress["page"] += 1
+                    progress["has_next"] = bool(next_has_next) and bool(next_cursor)
             save_state(state)
 
         save_state(state)
@@ -732,16 +756,26 @@ def main() -> None:
                 say("Entekhab namotabar ast.")
                 continue
 
+            bbox = None
             if choice == "1":
                 start_date, end_date = ask_dates()
                 districts_raw = input("Mahalleha (ba virgool, khali baraye hame): ").strip()
                 districts = [part.strip() for part in districts_raw.split(",") if part.strip()] or None
+                map_mode = input("Estekhraj az map-e Divar? (y/n): ").strip().casefold() in {"y", "yes", "bale", "1"}
+                bbox = None
+                if map_mode:
+                    while bbox is None:
+                        try:
+                            bbox = divar_map.parse_bbox(input("Link map Divar ya minLon,minLat,maxLon,maxLat: "))
+                        except ValueError as exc:
+                            say(str(exc))
                 state["categories"] = {}
                 state["settings"] = {
                     "start_date": start_date.isoformat() if start_date else None,
                     "end_date": end_date.isoformat() if end_date else None,
                     "date_filter_enabled": start_date is not None and end_date is not None,
                     "districts": districts,
+                    "map_bbox": bbox,
                     "city_id": DEZFUL_CITY_ID,
                 }
                 save_state(state)
@@ -753,6 +787,7 @@ def main() -> None:
                 start_date = date.fromisoformat(settings["start_date"]) if settings.get("start_date") else None
                 end_date = date.fromisoformat(settings["end_date"]) if settings.get("end_date") else None
                 districts = settings.get("districts")
+                bbox = settings.get("map_bbox")
                 if start_date and end_date:
                     say(f"Bazeye sabt shode: {start_date} ta {end_date}")
                 else:
@@ -762,7 +797,7 @@ def main() -> None:
             process_extraction(
                 conn, state, targets, start_date, end_date,
                 settings.get("city_id", DEZFUL_CITY_ID) if choice == "2" else DEZFUL_CITY_ID,
-                districts,
+                districts, bbox,
             )
             state = load_state()
     except KeyboardInterrupt:

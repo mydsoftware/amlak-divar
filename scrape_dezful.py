@@ -440,6 +440,15 @@ def extract_detail_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     return result
 
 
+def normalize_seller_type(value: Any) -> str:
+    raw = clean_text(value).casefold().replace("-", "_").replace(" ", "_")
+    if any(term in raw for term in ("business", "agency", "real_estate", "realestate", "broker", "مشاور", "املاک")):
+        return "املاک"
+    if any(term in raw for term in ("personal", "person", "private", "individual", "شخصی")):
+        return "شخصی"
+    return "نامشخص"
+
+
 def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
                  category_label: str) -> Dict[str, Any]:
     token = search_row["token"]
@@ -457,13 +466,7 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
             rooms = value
     price = detail["price"] or parse_money(search_row.get("price_text"))
     price_per_meter = int(price / area) if price and area and area > 0 else None
-    business_type = clean_text(detail.get("business_type", "")).casefold()
-    if any(x in business_type for x in ("business", "agency", "real_estate", "real-estate", "مشاور", "املاک")):
-        seller = "املاک"
-    elif any(x in business_type for x in ("personal", "person", "private", "individual", "شخصی")):
-        seller = "شخصی"
-    else:
-        seller = "نامشخص"
+    seller = normalize_seller_type(detail.get("business_type", ""))
     published = detail.get("posted_at")
     return {
         "تاریخ انتشار": published.isoformat() if published else "",

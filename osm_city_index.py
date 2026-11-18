@@ -98,10 +98,8 @@ def parse_overpass(payload: Dict[str, Any]) -> Dict[str, Any]:
             if key not in seen:
                 roads.append({"name": name, "highway": kind, "geometry": geometry})
                 seen.add(key)
-        is_area = (
-            tags.get("place") in {"neighbourhood", "suburb", "quarter", "locality"}
-            or tags.get("landuse") == "residential"
-        )
+        # Residential landuse polygons can cover the whole city, not a neighborhood.
+        is_area = tags.get("place") in {"neighbourhood", "suburb", "quarter", "locality"}
         if not is_area:
             continue
         geometries = [geometry] if len(geometry) >= 4 and geometry[0] == geometry[-1] else []
@@ -109,7 +107,7 @@ def parse_overpass(payload: Dict[str, Any]) -> Dict[str, Any]:
             geometries = _relation_outer_rings(element.get("members"))
         for ring in geometries:
             areas.append({"name": name, "geometry": ring})
-    return {"version": 1, "source": "© OpenStreetMap contributors",
+    return {"version": 2, "source": "© OpenStreetMap contributors",
             "roads": roads, "areas": areas}
 
 
@@ -155,7 +153,12 @@ def load_index(path: Path = DATA_FILE) -> Dict[str, Any]:
 
 def ensure_index(path: Path = DATA_FILE, session: Optional[requests.Session] = None) -> Dict[str, Any]:
     if path.exists():
-        return load_index(path)
+        try:
+            cached = load_index(path)
+            if int(cached.get("version", 0)) >= 2:
+                return cached
+        except (OSError, ValueError, TypeError):
+            pass
     index = download_index(path, session=session)
     global _INDEX
     if path == DATA_FILE:
@@ -206,6 +209,18 @@ def _nearest_roads(lat: float, lon: float, roads: List[Dict[str, Any]]) -> List[
     return sorted(best.values(), key=lambda item: item["distance"])[:8]
 
 
+def _polygon_area_m2(polygon: List[Tuple[float, float]]) -> float:
+    if len(polygon) < 4:
+        return float('inf')
+    mean_lat = sum(point[0] for point in polygon) / len(polygon)
+    sx, sy = 111320.0 * math.cos(math.radians(mean_lat)), 110540.0
+    points = [(lon * sx, lat * sy) for lat, lon in polygon]
+    return abs(sum(points[i][0] * points[(i + 1) % len(points)][1] - points[(i + 1) % len(points)][0] * points[i][1] for i in range(len(points)))) / 2.0
+
+def _is_city_name(name: str) -> bool:
+    normalized = ' '.join(str(name).replace('ي', 'ی').replace('ك', 'ک').casefold().split())
+    return normalized in {'دزفول', 'dezful', 'dezfool'}
+
 def classify_point(latitude: Any, longitude: Any, index: Optional[Dict[str, Any]] = None,
                    approximate: bool = False) -> Dict[str, Any]:
     try:
@@ -215,34 +230,38 @@ def classify_point(latitude: Any, longitude: Any, index: Optional[Dict[str, Any]
     if not (-90 <= lat <= 90 and -180 <= lon <= 180):
         return {}
     data = index or load_index()
-    for area in data.get("areas", []):
-        polygon = area.get("geometry") or []
-        if len(polygon) >= 4 and _point_in_polygon(lat, lon, polygon):
-            return {"neighborhood": area["name"], "street": "", "subarea": "",
-                    "confidence": 0.92 if not approximate else 0.68,
-                    "source": "OSM polygon" if not approximate else "OSM polygon / approximate coordinate"}
-    roads = _nearest_roads(lat, lon, data.get("roads", []))
-    if not roads:
-        return {}
-    first = roads[0]
-    confidence = 0.88 if first["distance"] <= 25 else 0.76 if first["distance"] <= 60 else 0.58 if first["distance"] <= 120 else 0.0
-    subarea = ""
-    # Only describe a between-streets corridor when both named, near-parallel roads
-    # lie on opposite sides of the point. This remains an estimate, not a legal boundary.
-    for second in roads[1:]:
-        angle_delta = abs((first["angle"] - second["angle"] + math.pi / 2) % math.pi - math.pi / 2)
-        opposite_sides = first["signed"] * second["signed"] < 0
-        if (opposite_sides and angle_delta <= math.radians(22)
-                and first["distance"] <= 120 and second["distance"] <= 120):
-            subarea = f"بین {first['name']} و {second['name']} (تخمینی)"
-            confidence = min(confidence, 0.72 if not approximate else 0.52)
-            break
-    if approximate:
+    matching_areas = []
+    for area in data.get('areas', []):
+        name, polygon = str(area.get('name') or '').strip(), area.get('geometry') or []
+        if not name or _is_city_name(name) or len(polygon) < 4:
+            continue
+        if _point_in_polygon(lat, lon, polygon):
+            matching_areas.append((_polygon_area_m2(polygon), name))
+    neighborhood = min(matching_areas, default=(0.0, ''), key=lambda item: item[0])[1]
+    # Always calculate roads; a matching polygon must not suppress street detection.
+    roads = _nearest_roads(lat, lon, data.get('roads', []))
+    street, subarea, nearby_streets, distance_m = '', '', [], None
+    confidence = 0.0
+    if roads and roads[0]['distance'] <= 120:
+        first = roads[0]
+        street, distance_m = first['name'], round(first['distance'], 1)
+        nearby_streets = [item['name'] for item in roads[:3]]
+        confidence = 0.88 if first['distance'] <= 25 else 0.76 if first['distance'] <= 60 else 0.58
+        for second in roads[1:]:
+            angle_delta = abs((first['angle'] - second['angle'] + math.pi / 2) % math.pi - math.pi / 2)
+            if first['signed'] * second['signed'] < 0 and angle_delta <= math.radians(22) and second['distance'] <= 120:
+                subarea = f"بین {first['name']} و {second['name']} (تخمینی)"
+                confidence = min(confidence, 0.72)
+                break
+    if approximate and confidence:
         confidence = min(confidence, 0.55)
-    if confidence < 0.45:
+    if not neighborhood and not street:
         return {}
-    return {"neighborhood": "", "street": first["name"], "subarea": subarea,
-            "nearby_streets": [item["name"] for item in roads[:3]],
-            "distance_m": round(first["distance"], 1),
-            "confidence": round(confidence, 2),
-            "source": "OSM road network" if not approximate else "OSM road network / approximate coordinate"}
+    source = 'OSM neighborhood polygon + road network' if neighborhood and street else 'OSM neighborhood polygon' if neighborhood else 'OSM road network'
+    if approximate:
+        source += ' / approximate coordinate'
+    if neighborhood and not street and not approximate:
+        confidence = max(confidence, 0.68)
+    return {'neighborhood': neighborhood, 'street': street, 'subarea': subarea,
+            'nearby_streets': nearby_streets, 'distance_m': distance_m,
+            'confidence': round(confidence, 2), 'source': source}

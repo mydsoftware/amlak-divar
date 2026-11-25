@@ -2,11 +2,11 @@ name: Lead Manager Checks
 on:
   push:
     paths:
-      - "lead_manager/**"
+      - "agent divar/**"
       - ".github/workflows/lead-manager.yml"
   pull_request:
     paths:
-      - "lead_manager/**"
+      - "agent divar/**"
       - ".github/workflows/lead-manager.yml"
 jobs:
   test:
@@ -17,8 +17,8 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: python -m pip install -r lead_manager/requirements.txt
+        run: python -m pip install -r "agent divar/requirements.txt"
       - name: Compile
         run: python -m compileall -q lead_manager
       - name: Tests
-        run: python -m unittest discover -s lead_manager/tests -v
+        run: python -m unittest discover -s "agent divar/tests" -v

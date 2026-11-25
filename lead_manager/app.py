@@ -86,7 +86,7 @@ class App(tk.Tk):
         f=self.camp_tab
         form=ttk.LabelFrame(f,text="تعریف کمپین",padding=12); form.pack(fill="x")
         self.c_name=tk.StringVar(); self.c_category=tk.StringVar(); self.c_city=tk.StringVar(value="دزفول"); self.c_keywords=tk.StringVar()
-        fields=[("نام کمپین",self.c_name),("حوزه / دسته",self.c_category),("شهر",self.c_city),("کلمات کلیدی (با ویرگول)",self.c_keywords)]
+        fields=[("نام کمپین",self.c_name),("حوزه / دسته",self.c_category),("کد شهر در دیوار (مثلاً dezful)",self.c_city),("کلمات کلیدی (با ویرگول)",self.c_keywords)]
         for i,(label,var) in enumerate(fields):
             r,c=divmod(i,2)
             cell=ttk.Frame(form); cell.grid(row=r,column=c,sticky="ew",padx=6,pady=5)
@@ -170,7 +170,7 @@ class App(tk.Tk):
     def open_search(self):
         city=self.c_city.get().strip() or "iran"
         keywords=self.c_keywords.get().strip() or self.c_category.get().strip()
-        url=f"https://divar.ir/s/{quote_plus(city)}"
+        city_slug=city.lower().replace(" ","-") if city.isascii() else "iran"\n        url=f"https://divar.ir/s/{quote_plus(city_slug)}"
         if keywords:url += f"?q={quote_plus(keywords)}"
         webbrowser.open(url)
 

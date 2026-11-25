@@ -143,8 +143,13 @@ class App(tk.Tk):
     def save_campaign(self):
         name=self.c_name.get().strip()
         if not name: messagebox.showwarning("ورودی ناقص","نام کمپین را وارد کنید."); return
+        values=(name,self.c_category.get().strip(),self.c_city.get().strip(),self.c_keywords.get().strip(),self.c_message.get("1.0","end").strip())
         with connect() as con:
-            con.execute("INSERT INTO campaigns(name,category,city,keywords,message_template) VALUES(?,?,?,?,?)",(name,self.c_category.get().strip(),self.c_city.get().strip(),self.c_keywords.get().strip(),self.c_message.get("1.0","end").strip()))
+            if self.campaign_id:
+                con.execute("UPDATE campaigns SET name=?,category=?,city=?,keywords=?,message_template=? WHERE id=?",values+(self.campaign_id,))
+            else:
+                cur=con.execute("INSERT INTO campaigns(name,category,city,keywords,message_template) VALUES(?,?,?,?,?)",values)
+                self.campaign_id=cur.lastrowid
         self.refresh_campaigns(); messagebox.showinfo("ذخیره شد","کمپین ذخیره شد.")
 
     def clear_campaign(self):

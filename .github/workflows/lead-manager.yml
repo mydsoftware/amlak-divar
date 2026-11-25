@@ -1,0 +1,24 @@
+name: Lead Manager Checks
+on:
+  push:
+    paths:
+      - "lead_manager/**"
+      - ".github/workflows/lead-manager.yml"
+  pull_request:
+    paths:
+      - "lead_manager/**"
+      - ".github/workflows/lead-manager.yml"
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: python -m pip install -r lead_manager/requirements.txt
+      - name: Compile
+        run: python -m compileall -q lead_manager
+      - name: Tests
+        run: python -m unittest discover -s lead_manager/tests -v

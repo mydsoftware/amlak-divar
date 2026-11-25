@@ -1,0 +1,100 @@
+name: استخراج آگهی‌های املاک دزفول
+
+on:
+  workflow_dispatch:
+    inputs:
+      apartment_count:
+        description: "تعداد آگهی آپارتمان"
+        required: true
+        type: number
+        default: 100
+      villa_count:
+        description: "تعداد آگهی ویلایی"
+        required: true
+        type: number
+        default: 100
+      land_count:
+        description: "تعداد آگهی زمین"
+        required: true
+        type: number
+        default: 100
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scrape-dezful
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    name: اجرای scrape_dezful.py
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PYTHONUNBUFFERED: "1"
+      APARTMENT_COUNT: ${{ inputs.apartment_count }}
+      VILLA_COUNT: ${{ inputs.villa_count }}
+      LAND_COUNT: ${{ inputs.land_count }}
+    steps:
+      - name: دریافت کد مخزن
+        uses: actions/checkout@v4
+
+      - name: راه‌اندازی پایتون
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: نصب وابستگی‌ها
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: اجرای واقعی اسکریپت استخراج
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! [[ "$APARTMENT_COUNT" =~ ^[0-9]+$ && "$VILLA_COUNT" =~ ^[0-9]+$ && "$LAND_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "تعداد آگهی‌ها باید عدد صحیح و نامنفی باشد."
+            exit 2
+          fi
+          printf '%s\n' \
+            '1' \
+            '1' \
+            '' \
+            '' \
+            '' \
+            'n' \
+            "$APARTMENT_COUNT" \
+            "$VILLA_COUNT" \
+            "$LAND_COUNT" \
+            '4' | python -u scrape_dezful.py
+
+      - name: بررسی فایل‌های خروجی
+        if: always()
+        run: |
+          echo "=== وضعیت فایل‌ها ==="
+          find data output -maxdepth 2 -type f -printf '%p (%s bytes)\n' 2>/dev/null || true
+          test -s output/dezful_amlak.xlsx || {
+            echo "فایل اکسل خروجی تولید نشده است."
+            exit 1
+          }
+          test -s data/amlak.sqlite3 || {
+            echo "پایگاه داده SQLite تولید نشده است."
+            exit 1
+          }
+
+      - name: بارگذاری خروجی‌ها
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dezful-amlak-${{ github.run_number }}
+          path: |
+            output/dezful_amlak.xlsx
+            data/amlak.sqlite3
+            data/progress.json
+            data/dezful_osm_index.json
+          if-no-files-found: warn
+          retention-days: 30

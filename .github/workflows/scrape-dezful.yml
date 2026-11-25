@@ -61,6 +61,9 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
+          APARTMENT_COUNT="${APARTMENT_COUNT:-100}"
+          VILLA_COUNT="${VILLA_COUNT:-100}"
+          LAND_COUNT="${LAND_COUNT:-100}"
           if ! [[ "$APARTMENT_COUNT" =~ ^[0-9]+$ && "$VILLA_COUNT" =~ ^[0-9]+$ && "$LAND_COUNT" =~ ^[0-9]+$ ]]; then
             echo "تعداد آگهی‌ها باید عدد صحیح و نامنفی باشد."
             exit 2

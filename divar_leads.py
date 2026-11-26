@@ -87,8 +87,8 @@ def analyze_listing(
 
     matched: List[str] = []
     excluded: List[str] = []
-    negative_hits = [word for word in profile.negative_keywords + list(DEFAULT_NEGATIVE)
-                     if normalize_fa(word) in text]
+    negative_terms = list(dict.fromkeys(profile.negative_keywords + list(DEFAULT_NEGATIVE)))
+    negative_hits = [word for word in negative_terms if normalize_fa(word) in text]
     if negative_hits:
         excluded.extend(f"negative:{word}" for word in negative_hits)
 

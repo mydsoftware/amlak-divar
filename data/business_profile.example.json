@@ -1,0 +1,16 @@
+{
+  "name": "مشاور املاک دزفول",
+  "industry": "املاک",
+  "positive_keywords": ["آپارتمان", "زمین", "ویلایی", "خرید", "فروش", "رهن", "اجاره"],
+  "negative_keywords": ["استخدام", "کارگر"],
+  "target_categories": ["آپارتمان", "ویلایی", "زمین"],
+  "target_districts": ["پیام‌آوران", "ارسطو", "بهاران"],
+  "min_price": null,
+  "max_price": null,
+  "weights": {
+    "keyword": 45,
+    "category": 20,
+    "district": 15,
+    "price": 20
+  }
+}

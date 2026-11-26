@@ -808,8 +808,8 @@ def open_url_for_platform(url: str) -> bool:
                     check=True, timeout=10,
                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 )
-                if result.returncode == 0:
-                    return True
+                # With check=True, a non-zero exit raises CalledProcessError.
+                return True
             except (OSError, subprocess.SubprocessError):
                 continue
 

@@ -21,6 +21,7 @@ import requests
 import divar_map
 import neighborhoods
 import osm_city_index
+import divar_leads
 
 API_BASE = "https://api.divar.ir/v8"
 SEARCH_URL = f"{API_BASE}/postlist/w/search"
@@ -42,7 +43,7 @@ CATEGORIES = {
 COLUMNS = [
     "ردیف", "تاریخ انتشار", "عنوان", "دسته", "متراژ", "قیمت_کل",
     "قیمت_هر_متر", "سال_ساخت", "تعداد_اتاق", "محله", "محله_خودکار", "خیابان_خودکار", "خیابان‌های_نزدیک", "محدوده_خودکار", "اطمینان_تشخیص", "محله_نقشه", "محدوده_نقشه", "منبع_محله",
-    "نوع_آگهی_دهنده", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
+    "نوع_آگهی_دهنده", "قصد_احتمالی", "امتیاز_سرنخ", "اطمینان_تحلیل", "سیگنال‌های_مثبت", "سیگنال‌های_منفی", "نیازمند_بازبینی", "عرض_جغرافیایی", "طول_جغرافیایی", "موقعیت_تقریبی", "توضیحات", "لینک", "توکن",
 ]
 MONTHS = {
     "فروردین": 1, "اردیبهشت": 2, "خرداد": 3, "تیر": 4,
@@ -508,6 +509,34 @@ def apply_osm_neighborhood(row: Dict[str, Any], conn: sqlite3.Connection,
         row["منبع_محله"] = result["source"]
     return apply_map_neighborhood(row)
 
+def load_business_profile() -> divar_leads.BusinessProfile:
+    """Load editable business-fit settings; fall back to a real-estate starter profile."""
+    profile_path = DATA_DIR / "business_profile.json"
+    default = {
+        "name": "مشاور املاک",
+        "industry": "املاک",
+        "positive_keywords": ["آپارتمان", "زمین", "ویلایی", "خرید", "فروش", "رهن", "اجاره"],
+        "negative_keywords": ["استخدام", "کارگر"],
+        "target_categories": ["آپارتمان", "ویلایی", "زمین"],
+        "target_districts": [],
+        "min_price": None,
+        "max_price": None,
+        "weights": {"keyword": 45, "category": 20, "district": 15, "price": 20},
+    }
+    try:
+        if profile_path.exists():
+            configured = json.loads(profile_path.read_text(encoding="utf-8"))
+            if isinstance(configured, dict):
+                default.update(configured)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        say(f"Business profile invalid; default profile used: {type(exc).__name__}")
+    allowed = {key: default[key] for key in (
+        "name", "industry", "positive_keywords", "negative_keywords",
+        "target_categories", "target_districts", "min_price", "max_price", "weights"
+    )}
+    return divar_leads.BusinessProfile(**allowed)
+
+
 def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
                  category_label: str) -> Dict[str, Any]:
     token = search_row["token"]
@@ -527,6 +556,14 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
     price_per_meter = int(price / area) if price and area and area > 0 else None
     seller = normalize_seller_type(detail.get("business_type", ""))
     published = detail.get("posted_at")
+    profile = load_business_profile()
+    analysis = divar_leads.analyze_listing({
+        "title": detail.get("title") or search_row.get("title", ""),
+        "description": detail.get("description", ""),
+        "category": category_label,
+        "district": search_row.get("district") or detail.get("district", ""),
+        "price": price,
+    }, profile)
     return apply_map_neighborhood({
         "تاریخ انتشار": published.isoformat() if published else "",
         "عنوان": detail.get("title") or search_row.get("title", ""),
@@ -540,6 +577,12 @@ def make_listing(search_row: Dict[str, Any], detail: Dict[str, Any],
         "محله_خودکار": "", "خیابان_خودکار": "", "خیابان‌های_نزدیک": "", "محدوده_خودکار": "", "اطمینان_تشخیص": "",
         "محله_نقشه": "", "محدوده_نقشه": "", "منبع_محله": "",
         "نوع_آگهی_دهنده": seller,
+        "قصد_احتمالی": analysis.intent,
+        "امتیاز_سرنخ": analysis.score,
+        "اطمینان_تحلیل": analysis.confidence,
+        "سیگنال‌های_مثبت": "، ".join(analysis.matched_signals),
+        "سیگنال‌های_منفی": "، ".join(analysis.excluded_signals),
+        "نیازمند_بازبینی": "بله" if analysis.requires_human_review else "خیر",
         "عرض_جغرافیایی": search_row.get("latitude"),
         "طول_جغرافیایی": search_row.get("longitude"),
         "موقعیت_تقریبی": ("بله" if search_row.get("approximate_location", True) else "خیر") if search_row.get("latitude") is not None and search_row.get("longitude") is not None else "",
